@@ -53,7 +53,6 @@ public class EntityMapper {
 
     public Team toEntity(TeamDto.Request dto) {
         Team team = new Team();
-        // These will need to be set by the service layer after fetching the actual entities
         team.setTeamName(dto.getTeamName());
         team.setYearCreated(dto.getYearCreated());
         return team;
