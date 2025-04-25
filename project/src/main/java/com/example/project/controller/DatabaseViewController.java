@@ -30,9 +30,16 @@ public class DatabaseViewController {
     
     // Player operations
     @GetMapping("/players")
-    public List<PlayerDto.Response> getAllPlayers() {
-        log.info("Fetching all players");
+    public List<PlayerDto.Response> getAllPlayers(
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String surname,
+            @RequestParam(required = false) String personalCode) {
+        log.info("Fetching players with filters - name: {}, surname: {}, personalCode: {}", name, surname, personalCode);
+        
         return playerRepository.findAll().stream()
+            .filter(player -> name == null || player.getName().toLowerCase().contains(name.toLowerCase()))
+            .filter(player -> surname == null || player.getSurname().toLowerCase().contains(surname.toLowerCase()))
+            .filter(player -> personalCode == null || player.getPersonalCode().equals(personalCode))
             .map(mapper::toDto)
             .collect(Collectors.toList());
     }
@@ -95,9 +102,19 @@ public class DatabaseViewController {
     
     // Coach operations
     @GetMapping("/coaches")
-    public List<CoachDto.Response> getAllCoaches() {
-        log.info("Fetching all coaches");
+    public List<CoachDto.Response> getAllCoaches(
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String surname,
+            @RequestParam(required = false) String licenseId,
+            @RequestParam(required = false) String personalCode) {
+        log.info("Fetching coaches with filters - name: {}, surname: {}, licenseId: {}, personalCode: {}", 
+                name, surname, licenseId, personalCode);
+        
         return coachRepository.findAll().stream()
+            .filter(coach -> name == null || coach.getName().toLowerCase().contains(name.toLowerCase()))
+            .filter(coach -> surname == null || coach.getSurname().toLowerCase().contains(surname.toLowerCase()))
+            .filter(coach -> licenseId == null || coach.getLicenseId().equals(licenseId))
+            .filter(coach -> personalCode == null || coach.getPersonalCode().equals(personalCode))
             .map(mapper::toDto)
             .collect(Collectors.toList());
     }
@@ -160,9 +177,19 @@ public class DatabaseViewController {
     
     // Team operations
     @GetMapping("/teams")
-    public List<TeamDto.Response> getAllTeams() {
-        log.info("Fetching all teams");
+    public List<TeamDto.Response> getAllTeams(
+            @RequestParam(required = false) String teamName,
+            @RequestParam(required = false) Integer yearCreated,
+            @RequestParam(required = false) Integer coachId,
+            @RequestParam(required = false) Integer playerId) {
+        log.info("Fetching teams with filters - teamName: {}, yearCreated: {}, coachId: {}, playerId: {}", 
+                teamName, yearCreated, coachId, playerId);
+        
         return teamRepository.findAll().stream()
+            .filter(team -> teamName == null || team.getTeamName().toLowerCase().contains(teamName.toLowerCase()))
+            .filter(team -> yearCreated == null || team.getYearCreated().equals(yearCreated))
+            .filter(team -> coachId == null || (team.getCoach() != null && team.getCoach().getId().equals(coachId)))
+            .filter(team -> playerId == null || (team.getPlayer() != null && team.getPlayer().getId().equals(playerId)))
             .map(mapper::toDto)
             .collect(Collectors.toList());
     }
