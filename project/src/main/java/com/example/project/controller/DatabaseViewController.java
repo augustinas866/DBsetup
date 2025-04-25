@@ -16,11 +16,18 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import java.util.List;
 import java.util.stream.Collectors;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 @Slf4j
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
+@Tag(name = "Sports Team Management", description = "API for managing sports teams, players, and coaches")
 public class DatabaseViewController {
     
     private final PlayerRepository playerRepository;
@@ -29,11 +36,16 @@ public class DatabaseViewController {
     private final EntityMapper mapper;
     
     // Player operations
+    @Operation(summary = "Get all players", description = "Retrieve a list of all players with optional filtering")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved the list of players"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @GetMapping("/players")
     public List<PlayerDto.Response> getAllPlayers(
-            @RequestParam(required = false) String name,
-            @RequestParam(required = false) String surname,
-            @RequestParam(required = false) String personalCode) {
+            @Parameter(description = "Filter by player name") @RequestParam(required = false) String name,
+            @Parameter(description = "Filter by player surname") @RequestParam(required = false) String surname,
+            @Parameter(description = "Filter by player personal code") @RequestParam(required = false) String personalCode) {
         log.info("Fetching players with filters - name: {}, surname: {}, personalCode: {}", name, surname, personalCode);
         
         return playerRepository.findAll().stream()
@@ -44,54 +56,100 @@ public class DatabaseViewController {
             .collect(Collectors.toList());
     }
 
+    @Operation(summary = "Create a new player", description = "Create a new player with the provided details")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully created the player"),
+        @ApiResponse(responseCode = "400", description = "Invalid request - missing required fields"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @PostMapping("/players")
-    public PlayerDto.Response createPlayer(@RequestBody PlayerDto.Request request) {
+    public ResponseEntity<PlayerDto.Response> createPlayer(
+            @Parameter(description = "Player creation request", required = true)
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                description = "Player creation request",
+                required = true,
+                content = @io.swagger.v3.oas.annotations.media.Content(
+                    schema = @Schema(implementation = PlayerDto.Request.class)
+                )
+            )
+            @RequestBody PlayerDto.Request request) {
         log.info("Creating player: {}", request);
-        Player player = mapper.toEntity(request);
-        player = playerRepository.save(player);
-        return mapper.toDto(player);
+        try {
+            // Validate required fields
+            if (request.getName() == null || request.getSurname() == null || 
+                request.getDateOfBirth() == null || request.getPersonalCode() == null) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            Player player = mapper.toEntity(request);
+            player = playerRepository.save(player);
+            return ResponseEntity.ok(mapper.toDto(player));
+        } catch (Exception e) {
+            log.error("Error creating player: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
+    @Operation(summary = "Get a player by ID", description = "Retrieve a player by their ID")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved the player"),
+        @ApiResponse(responseCode = "404", description = "Player not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @GetMapping("/players/{id}")
-    public PlayerDto.Response getPlayer(@PathVariable Integer id) {
+    public ResponseEntity<PlayerDto.Response> getPlayer(@Parameter(description = "Player ID") @PathVariable Integer id) {
         log.info("Fetching player with id: {}", id);
         return playerRepository.findById(id)
-            .map(mapper::toDto)
-            .orElse(null);
+            .map(player -> ResponseEntity.ok(mapper.toDto(player)))
+            .orElse(ResponseEntity.notFound().build());
     }
 
+    @Operation(summary = "Update a player", description = "Update an existing player's details")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully updated the player"),
+        @ApiResponse(responseCode = "404", description = "Player not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @PutMapping("/players/{id}")
-    public PlayerDto.Response updatePlayer(@PathVariable Integer id, @RequestBody PlayerDto.Request request) {
+    public ResponseEntity<PlayerDto.Response> updatePlayer(
+            @Parameter(description = "Player ID") @PathVariable Integer id,
+            @RequestBody PlayerDto.Request request) {
         log.info("Updating player with id: {}", id);
-        Player player = mapper.toEntity(request);
-        player.setId(id);
-        Player updatedPlayer = playerRepository.save(player);
-        return mapper.toDto(updatedPlayer);
+        return playerRepository.findById(id)
+            .map(existingPlayer -> {
+                Player player = mapper.toEntity(request);
+                player.setId(id);
+                Player updatedPlayer = playerRepository.save(player);
+                return ResponseEntity.ok(mapper.toDto(updatedPlayer));
+            })
+            .orElse(ResponseEntity.notFound().build());
     }
 
+    @Operation(summary = "Delete a player", description = "Delete a player by their ID")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully deleted the player"),
+        @ApiResponse(responseCode = "404", description = "Player not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @DeleteMapping("/players/{id}")
-    public ResponseEntity<Void> deletePlayer(@PathVariable Integer id) {
+    public ResponseEntity<Void> deletePlayer(@Parameter(description = "Player ID") @PathVariable Integer id) {
         log.info("Deleting player with id: {}", id);
         try {
-            // Check if player exists
             if (!playerRepository.existsById(id)) {
                 return ResponseEntity.notFound().build();
             }
 
-            // Check if player is referenced by any team
             List<Team> teamsWithPlayer = teamRepository.findAll().stream()
                 .filter(team -> team.getPlayer() != null && team.getPlayer().getId().equals(id))
                 .collect(Collectors.toList());
 
             if (!teamsWithPlayer.isEmpty()) {
-                // Remove player reference from teams
                 for (Team team : teamsWithPlayer) {
                     team.setPlayer(null);
                     teamRepository.save(team);
                 }
             }
 
-            // Delete the player
             playerRepository.deleteById(id);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
@@ -101,12 +159,17 @@ public class DatabaseViewController {
     }
     
     // Coach operations
+    @Operation(summary = "Get all coaches", description = "Retrieve a list of all coaches with optional filtering")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved the list of coaches"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @GetMapping("/coaches")
     public List<CoachDto.Response> getAllCoaches(
-            @RequestParam(required = false) String name,
-            @RequestParam(required = false) String surname,
-            @RequestParam(required = false) String licenseId,
-            @RequestParam(required = false) String personalCode) {
+            @Parameter(description = "Filter by coach name") @RequestParam(required = false) String name,
+            @Parameter(description = "Filter by coach surname") @RequestParam(required = false) String surname,
+            @Parameter(description = "Filter by coach license ID") @RequestParam(required = false) String licenseId,
+            @Parameter(description = "Filter by coach personal code") @RequestParam(required = false) String personalCode) {
         log.info("Fetching coaches with filters - name: {}, surname: {}, licenseId: {}, personalCode: {}", 
                 name, surname, licenseId, personalCode);
         
@@ -119,54 +182,101 @@ public class DatabaseViewController {
             .collect(Collectors.toList());
     }
 
+    @Operation(summary = "Create a new coach", description = "Create a new coach with the provided details")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully created the coach"),
+        @ApiResponse(responseCode = "400", description = "Invalid request - missing required fields"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @PostMapping("/coaches")
-    public CoachDto.Response createCoach(@RequestBody CoachDto.Request request) {
+    public ResponseEntity<CoachDto.Response> createCoach(
+            @Parameter(description = "Coach creation request", required = true)
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                description = "Coach creation request",
+                required = true,
+                content = @io.swagger.v3.oas.annotations.media.Content(
+                    schema = @Schema(implementation = CoachDto.Request.class)
+                )
+            )
+            @RequestBody CoachDto.Request request) {
         log.info("Creating coach: {}", request);
-        Coach coach = mapper.toEntity(request);
-        coach = coachRepository.save(coach);
-        return mapper.toDto(coach);
+        try {
+            // Validate required fields
+            if (request.getName() == null || request.getSurname() == null || 
+                request.getCoachingFrom() == null || request.getLicenseId() == null || 
+                request.getPersonalCode() == null) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            Coach coach = mapper.toEntity(request);
+            coach = coachRepository.save(coach);
+            return ResponseEntity.ok(mapper.toDto(coach));
+        } catch (Exception e) {
+            log.error("Error creating coach: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
+    @Operation(summary = "Get a coach by ID", description = "Retrieve a coach by their ID")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved the coach"),
+        @ApiResponse(responseCode = "404", description = "Coach not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @GetMapping("/coaches/{id}")
-    public CoachDto.Response getCoach(@PathVariable Integer id) {
+    public ResponseEntity<CoachDto.Response> getCoach(@Parameter(description = "Coach ID") @PathVariable Integer id) {
         log.info("Fetching coach with id: {}", id);
         return coachRepository.findById(id)
-            .map(mapper::toDto)
-            .orElse(null);
+            .map(coach -> ResponseEntity.ok(mapper.toDto(coach)))
+            .orElse(ResponseEntity.notFound().build());
     }
 
+    @Operation(summary = "Update a coach", description = "Update an existing coach's details")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully updated the coach"),
+        @ApiResponse(responseCode = "404", description = "Coach not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @PutMapping("/coaches/{id}")
-    public CoachDto.Response updateCoach(@PathVariable Integer id, @RequestBody CoachDto.Request request) {
+    public ResponseEntity<CoachDto.Response> updateCoach(
+            @Parameter(description = "Coach ID") @PathVariable Integer id,
+            @RequestBody CoachDto.Request request) {
         log.info("Updating coach with id: {}", id);
-        Coach coach = mapper.toEntity(request);
-        coach.setId(id);
-        Coach updatedCoach = coachRepository.save(coach);
-        return mapper.toDto(updatedCoach);
+        return coachRepository.findById(id)
+            .map(existingCoach -> {
+                Coach coach = mapper.toEntity(request);
+                coach.setId(id);
+                Coach updatedCoach = coachRepository.save(coach);
+                return ResponseEntity.ok(mapper.toDto(updatedCoach));
+            })
+            .orElse(ResponseEntity.notFound().build());
     }
 
+    @Operation(summary = "Delete a coach", description = "Delete a coach by their ID")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully deleted the coach"),
+        @ApiResponse(responseCode = "404", description = "Coach not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @DeleteMapping("/coaches/{id}")
-    public ResponseEntity<Void> deleteCoach(@PathVariable Integer id) {
+    public ResponseEntity<Void> deleteCoach(@Parameter(description = "Coach ID") @PathVariable Integer id) {
         log.info("Deleting coach with id: {}", id);
         try {
-            // Check if coach exists
             if (!coachRepository.existsById(id)) {
                 return ResponseEntity.notFound().build();
             }
 
-            // Check if coach is referenced by any team
             List<Team> teamsWithCoach = teamRepository.findAll().stream()
                 .filter(team -> team.getCoach() != null && team.getCoach().getId().equals(id))
                 .collect(Collectors.toList());
 
             if (!teamsWithCoach.isEmpty()) {
-                // Remove coach reference from teams
                 for (Team team : teamsWithCoach) {
                     team.setCoach(null);
                     teamRepository.save(team);
                 }
             }
 
-            // Delete the coach
             coachRepository.deleteById(id);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
@@ -176,12 +286,17 @@ public class DatabaseViewController {
     }
     
     // Team operations
+    @Operation(summary = "Get all teams", description = "Retrieve a list of all teams with optional filtering")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved the list of teams"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @GetMapping("/teams")
     public List<TeamDto.Response> getAllTeams(
-            @RequestParam(required = false) String teamName,
-            @RequestParam(required = false) Integer yearCreated,
-            @RequestParam(required = false) Integer coachId,
-            @RequestParam(required = false) Integer playerId) {
+            @Parameter(description = "Filter by team name") @RequestParam(required = false) String teamName,
+            @Parameter(description = "Filter by year created") @RequestParam(required = false) Integer yearCreated,
+            @Parameter(description = "Filter by coach ID") @RequestParam(required = false) Integer coachId,
+            @Parameter(description = "Filter by player ID") @RequestParam(required = false) Integer playerId) {
         log.info("Fetching teams with filters - teamName: {}, yearCreated: {}, coachId: {}, playerId: {}", 
                 teamName, yearCreated, coachId, playerId);
         
@@ -194,75 +309,117 @@ public class DatabaseViewController {
             .collect(Collectors.toList());
     }
 
+    @Operation(summary = "Create a new team", description = "Create a new team with the provided details")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully created the team"),
+        @ApiResponse(responseCode = "400", description = "Invalid request - missing required fields"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @PostMapping("/teams")
-    public TeamDto.Response createTeam(@RequestBody TeamDto.Request request) {
+    public ResponseEntity<TeamDto.Response> createTeam(
+            @Parameter(description = "Team creation request", required = true)
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                description = "Team creation request",
+                required = true,
+                content = @io.swagger.v3.oas.annotations.media.Content(
+                    schema = @Schema(implementation = TeamDto.Request.class)
+                )
+            )
+            @RequestBody TeamDto.Request request) {
         log.info("Creating team with request: {}", request);
-        
-        // Create team entity
-        Team team = mapper.toEntity(request);
-        
-        // Set coach if provided
-        if (request.getCoachId() != null) {
-            Coach coach = coachRepository.findById(request.getCoachId())
-                .orElseThrow(() -> new IllegalArgumentException("Coach not found with id: " + request.getCoachId()));
-            team.setCoach(coach);
+        try {
+            // Validate required fields
+            if (request.getTeamName() == null || request.getYearCreated() == null) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            Team team = mapper.toEntity(request);
+            
+            if (request.getCoachId() != null) {
+                Coach coach = coachRepository.findById(request.getCoachId())
+                    .orElseThrow(() -> new IllegalArgumentException("Coach not found with id: " + request.getCoachId()));
+                team.setCoach(coach);
+            }
+            
+            if (request.getPlayerId() != null) {
+                Player player = playerRepository.findById(request.getPlayerId())
+                    .orElseThrow(() -> new IllegalArgumentException("Player not found with id: " + request.getPlayerId()));
+                team.setPlayer(player);
+            }
+            
+            team = teamRepository.save(team);
+            return ResponseEntity.ok(mapper.toDto(team));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid request: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        } catch (Exception e) {
+            log.error("Error creating team: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
         }
-        
-        // Set player if provided
-        if (request.getPlayerId() != null) {
-            Player player = playerRepository.findById(request.getPlayerId())
-                .orElseThrow(() -> new IllegalArgumentException("Player not found with id: " + request.getPlayerId()));
-            team.setPlayer(player);
-        }
-        
-        team = teamRepository.save(team);
-        return mapper.toDto(team);
     }
 
+    @Operation(summary = "Get a team by ID", description = "Retrieve a team by their ID")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved the team"),
+        @ApiResponse(responseCode = "404", description = "Team not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @GetMapping("/teams/{id}")
-    public TeamDto.Response getTeam(@PathVariable Integer id) {
+    public ResponseEntity<TeamDto.Response> getTeam(@Parameter(description = "Team ID") @PathVariable Integer id) {
         log.info("Fetching team with id: {}", id);
         return teamRepository.findById(id)
-            .map(mapper::toDto)
-            .orElse(null);
+            .map(team -> ResponseEntity.ok(mapper.toDto(team)))
+            .orElse(ResponseEntity.notFound().build());
     }
 
+    @Operation(summary = "Update a team", description = "Update an existing team's details")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully updated the team"),
+        @ApiResponse(responseCode = "404", description = "Team not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @PutMapping("/teams/{id}")
-    public TeamDto.Response updateTeam(@PathVariable Integer id, @RequestBody TeamDto.Request request) {
+    public ResponseEntity<TeamDto.Response> updateTeam(
+            @Parameter(description = "Team ID") @PathVariable Integer id,
+            @RequestBody TeamDto.Request request) {
         log.info("Updating team with id: {}", id);
-        
-        // Create new team entity
-        Team team = mapper.toEntity(request);
-        team.setTeamId(id);
-        
-        // Set coach if provided
-        if (request.getCoachId() != null) {
-            Coach coach = coachRepository.findById(request.getCoachId())
-                .orElseThrow(() -> new IllegalArgumentException("Coach not found with id: " + request.getCoachId()));
-            team.setCoach(coach);
-        }
-        
-        // Set player if provided
-        if (request.getPlayerId() != null) {
-            Player player = playerRepository.findById(request.getPlayerId())
-                .orElseThrow(() -> new IllegalArgumentException("Player not found with id: " + request.getPlayerId()));
-            team.setPlayer(player);
-        }
-        
-        Team updatedTeam = teamRepository.save(team);
-        return mapper.toDto(updatedTeam);
+        return teamRepository.findById(id)
+            .map(existingTeam -> {
+                Team team = mapper.toEntity(request);
+                team.setTeamId(id);
+                
+                if (request.getCoachId() != null) {
+                    Coach coach = coachRepository.findById(request.getCoachId())
+                        .orElseThrow(() -> new IllegalArgumentException("Coach not found with id: " + request.getCoachId()));
+                    team.setCoach(coach);
+                }
+                
+                if (request.getPlayerId() != null) {
+                    Player player = playerRepository.findById(request.getPlayerId())
+                        .orElseThrow(() -> new IllegalArgumentException("Player not found with id: " + request.getPlayerId()));
+                    team.setPlayer(player);
+                }
+                
+                Team updatedTeam = teamRepository.save(team);
+                return ResponseEntity.ok(mapper.toDto(updatedTeam));
+            })
+            .orElse(ResponseEntity.notFound().build());
     }
 
+    @Operation(summary = "Delete a team", description = "Delete a team by their ID")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully deleted the team"),
+        @ApiResponse(responseCode = "404", description = "Team not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     @DeleteMapping("/teams/{id}")
-    public ResponseEntity<Void> deleteTeam(@PathVariable Integer id) {
+    public ResponseEntity<Void> deleteTeam(@Parameter(description = "Team ID") @PathVariable Integer id) {
         log.info("Deleting team with id: {}", id);
         try {
-            // Check if team exists
             if (!teamRepository.existsById(id)) {
                 return ResponseEntity.notFound().build();
             }
 
-            // Delete the team
             teamRepository.deleteById(id);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
