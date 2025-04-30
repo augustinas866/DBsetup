@@ -2,6 +2,7 @@ package com.example.project.dto;
 
 import lombok.Data;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Set;
 
 @Schema(description = "Team data transfer object")
 public class TeamDto {
@@ -12,8 +13,8 @@ public class TeamDto {
         @Schema(description = "ID of the team's coach", example = "1")
         private Integer coachId;
         
-        @Schema(description = "ID of the team's player", example = "1")
-        private Integer playerId;
+        @Schema(description = "IDs of the team's players", example = "[1, 2, 3]")
+        private Set<Integer> playerIds;
         
         @Schema(description = "Name of the team", example = "Eagles", required = true)
         private String teamName;
@@ -31,8 +32,8 @@ public class TeamDto {
         @Schema(description = "Team's coach information")
         private CoachDto.Response coach;
         
-        @Schema(description = "Team's player information")
-        private PlayerDto.Response player;
+        @Schema(description = "Team's players information")
+        private Set<PlayerDto.Response> players;
         
         @Schema(description = "Name of the team")
         private String teamName;

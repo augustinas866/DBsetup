@@ -20,4 +20,5 @@ public class Coach {
     private LocalDate coachingFrom;
     private String licenseId;
     private String personalCode;
+    private String email;
 } 

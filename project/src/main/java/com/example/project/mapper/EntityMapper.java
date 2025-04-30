@@ -7,10 +7,11 @@ import com.example.project.model.Player;
 import com.example.project.model.Coach;
 import com.example.project.model.Team;
 import org.springframework.stereotype.Component;
+import java.util.stream.Collectors;
 
 @Component
 public class EntityMapper {
-
+    
     public Player toEntity(PlayerDto.Request dto) {
         Player player = new Player();
         player.setName(dto.getName());
@@ -66,8 +67,10 @@ public class EntityMapper {
         if (entity.getCoach() != null) {
             dto.setCoach(toDto(entity.getCoach()));
         }
-        if (entity.getPlayer() != null) {
-            dto.setPlayer(toDto(entity.getPlayer()));
+        if (entity.getPlayers() != null) {
+            dto.setPlayers(entity.getPlayers().stream()
+                .map(this::toDto)
+                .collect(Collectors.toSet()));
         }
         return dto;
     }

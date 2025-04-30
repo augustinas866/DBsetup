@@ -22,6 +22,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Set;
 
 @Slf4j
 @RestController
@@ -140,12 +141,13 @@ public class DatabaseViewController {
             }
 
             List<Team> teamsWithPlayer = teamRepository.findAll().stream()
-                .filter(team -> team.getPlayer() != null && team.getPlayer().getId().equals(id))
+                .filter(team -> team.getPlayers().stream()
+                    .anyMatch(player -> player.getId().equals(id)))
                 .collect(Collectors.toList());
 
             if (!teamsWithPlayer.isEmpty()) {
                 for (Team team : teamsWithPlayer) {
-                    team.setPlayer(null);
+                    team.getPlayers().removeIf(player -> player.getId().equals(id));
                     teamRepository.save(team);
                 }
             }
@@ -304,7 +306,8 @@ public class DatabaseViewController {
             .filter(team -> teamName == null || team.getTeamName().toLowerCase().contains(teamName.toLowerCase()))
             .filter(team -> yearCreated == null || team.getYearCreated().equals(yearCreated))
             .filter(team -> coachId == null || (team.getCoach() != null && team.getCoach().getId().equals(coachId)))
-            .filter(team -> playerId == null || (team.getPlayer() != null && team.getPlayer().getId().equals(playerId)))
+            .filter(team -> playerId == null || team.getPlayers().stream()
+                .anyMatch(player -> player.getId().equals(playerId)))
             .map(mapper::toDto)
             .collect(Collectors.toList());
     }
@@ -316,16 +319,7 @@ public class DatabaseViewController {
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @PostMapping("/teams")
-    public ResponseEntity<TeamDto.Response> createTeam(
-            @Parameter(description = "Team creation request", required = true)
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                description = "Team creation request",
-                required = true,
-                content = @io.swagger.v3.oas.annotations.media.Content(
-                    schema = @Schema(implementation = TeamDto.Request.class)
-                )
-            )
-            @RequestBody TeamDto.Request request) {
+    public ResponseEntity<TeamDto.Response> createTeam(@RequestBody TeamDto.Request request) {
         log.info("Creating team with request: {}", request);
         try {
             // Validate required fields
@@ -341,10 +335,12 @@ public class DatabaseViewController {
                 team.setCoach(coach);
             }
             
-            if (request.getPlayerId() != null) {
-                Player player = playerRepository.findById(request.getPlayerId())
-                    .orElseThrow(() -> new IllegalArgumentException("Player not found with id: " + request.getPlayerId()));
-                team.setPlayer(player);
+            if (request.getPlayerIds() != null && !request.getPlayerIds().isEmpty()) {
+                Set<Player> players = request.getPlayerIds().stream()
+                    .map(id -> playerRepository.findById(id)
+                        .orElseThrow(() -> new IllegalArgumentException("Player not found with id: " + id)))
+                    .collect(Collectors.toSet());
+                team.getPlayers().addAll(players);
             }
             
             team = teamRepository.save(team);
@@ -394,10 +390,12 @@ public class DatabaseViewController {
                     team.setCoach(coach);
                 }
                 
-                if (request.getPlayerId() != null) {
-                    Player player = playerRepository.findById(request.getPlayerId())
-                        .orElseThrow(() -> new IllegalArgumentException("Player not found with id: " + request.getPlayerId()));
-                    team.setPlayer(player);
+                if (request.getPlayerIds() != null) {
+                    Set<Player> players = request.getPlayerIds().stream()
+                        .map(playerId -> playerRepository.findById(playerId)
+                            .orElseThrow(() -> new IllegalArgumentException("Player not found with id: " + playerId)))
+                        .collect(Collectors.toSet());
+                    team.setPlayers(players);
                 }
                 
                 Team updatedTeam = teamRepository.save(team);
@@ -425,6 +423,43 @@ public class DatabaseViewController {
         } catch (Exception e) {
             log.error("Error deleting team: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // Add new endpoints for managing players in a team
+    @PostMapping("/teams/{teamId}/players/{playerId}")
+    public ResponseEntity<TeamDto.Response> addPlayerToTeam(
+            @PathVariable Integer teamId,
+            @PathVariable Integer playerId) {
+        try {
+            Team team = teamRepository.findById(teamId)
+                .orElseThrow(() -> new IllegalArgumentException("Team not found"));
+            Player player = playerRepository.findById(playerId)
+                .orElseThrow(() -> new IllegalArgumentException("Player not found"));
+            
+            team.addPlayer(player);
+            team = teamRepository.save(team);
+            return ResponseEntity.ok(mapper.toDto(team));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @DeleteMapping("/teams/{teamId}/players/{playerId}")
+    public ResponseEntity<TeamDto.Response> removePlayerFromTeam(
+            @PathVariable Integer teamId,
+            @PathVariable Integer playerId) {
+        try {
+            Team team = teamRepository.findById(teamId)
+                .orElseThrow(() -> new IllegalArgumentException("Team not found"));
+            Player player = playerRepository.findById(playerId)
+                .orElseThrow(() -> new IllegalArgumentException("Player not found"));
+            
+            team.removePlayer(player);
+            team = teamRepository.save(team);
+            return ResponseEntity.ok(mapper.toDto(team));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
         }
     }
 } 
